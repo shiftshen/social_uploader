@@ -11,7 +11,7 @@ from myUtils.auth import check_cookie
 from flask import Flask, request, jsonify, Response, render_template, send_from_directory
 from conf import BASE_DIR
 from myUtils.login import get_tencent_cookie, douyin_cookie_gen, get_ks_cookie, xiaohongshu_cookie_gen, tiktok_cookie_gen
-from myUtils.postVideo import post_video_tencent, post_video_DouYin, post_video_ks, post_video_xhs
+from myUtils.postVideo import post_video_tencent, post_video_DouYin, post_video_ks, post_video_xhs, post_video_tiktok
 
 active_queues = {}
 app = Flask(__name__)
@@ -358,6 +358,9 @@ def postVideo():
         case 4:
             post_video_ks(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
                       start_days)
+        case 5:
+            post_video_tiktok(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
+                              start_days, thumbnail_path)
     # 返回响应给客户端
     return jsonify(
         {

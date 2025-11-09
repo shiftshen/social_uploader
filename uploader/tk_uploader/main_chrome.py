@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import re
 from datetime import datetime
+import time
 
 from playwright.async_api import Playwright, async_playwright
 import os
@@ -196,7 +197,7 @@ class TiktokVideo(object):
         await browser.close()
 
     async def add_title_tags(self, page):
-
+        await self.ensure_modal_closed(page, wait_seconds=5)
         editor_locator = self.locator_base.locator('div.public-DraftEditor-content')
         await editor_locator.click()
 
@@ -240,25 +241,36 @@ class TiktokVideo(object):
         await page.wait_for_timeout(3000)  # wait 3s, fix it later
 
     async def change_language(self, page):
-        # set the language to english
-        await page.goto("https://www.tiktok.com")
-        await page.wait_for_load_state('domcontentloaded')
-        await page.wait_for_selector('[data-e2e="nav-more-menu"]')
-        # 已经设置为英文, 省略这个步骤
-        if await page.locator('[data-e2e="nav-more-menu"]').text_content() == "More":
-            return
+        # 语言切换流程如果失败无需阻塞上传，增加容错
+        try:
+            await page.goto("https://www.tiktok.com")
+            await page.wait_for_load_state('domcontentloaded')
+            more_menu = page.locator('[data-e2e="nav-more-menu"]')
+            await more_menu.wait_for(state='visible', timeout=10000)
+            text = (await more_menu.text_content() or "").strip()
+            if text and text.lower().startswith("more"):
+                return
 
-        await page.locator('[data-e2e="nav-more-menu"]').click()
-        await page.locator('[data-e2e="language-select"]').click()
-        await page.locator('#creator-tools-selection-menu-header >> text=English (US)').click()
+            await more_menu.click()
+            language_entry = page.locator('[data-e2e="language-select"]')
+            await language_entry.wait_for(state='visible', timeout=5000)
+            await language_entry.click()
+
+            english_option = page.locator('#creator-tools-selection-menu-header').locator("text=English (US)")
+            await english_option.wait_for(state='visible', timeout=5000)
+            await english_option.click()
+        except Exception as exc:
+            tiktok_logger.warning(f"[+] skip language switch: {exc}")
 
     async def click_publish(self, page):
         success_flag_div = 'div.common-modal-confirm-modal'
         while True:
             try:
+                await self.ensure_modal_closed(page, wait_seconds=3)
                 publish_button = self.locator_base.locator('div.button-group button').nth(0)
                 if await publish_button.count():
                     await publish_button.click()
+                    await self.ensure_modal_closed(page, wait_seconds=5)
 
                 await page.wait_for_url("https://www.tiktok.com/tiktokstudio/content",  timeout=3000)
                 tiktok_logger.success("  [-] video published success")
@@ -284,6 +296,7 @@ class TiktokVideo(object):
                 if await self.locator_base.locator(
                         'div.button-group > button >> text=Post').get_attribute("disabled") is None:
                     tiktok_logger.info("  [-]video uploaded.")
+                    await self.ensure_modal_closed(page, wait_seconds=5)
                     break
                 else:
                     tiktok_logger.info("  [-] video uploading...")
@@ -292,9 +305,107 @@ class TiktokVideo(object):
                             'button[aria-label="Select file"]').count():
                         tiktok_logger.info("  [-] found some error while uploading now retry...")
                         await self.handle_upload_error(page)
+                    await self.ensure_modal_closed(page, wait_seconds=2)
             except:
                 tiktok_logger.info("  [-] video uploading...")
                 await asyncio.sleep(2)
+
+    async def dismiss_auto_check_modal(self, page):
+        handled = False
+        try:
+            dialog = page.get_by_role("dialog", name=re.compile("automatic content checks", re.I))
+            if not await dialog.count():
+                dialog = page.locator("div.common-modal").filter(has_text=re.compile("automatic content checks", re.I))
+            if await dialog.count():
+                cancel_btn = dialog.get_by_role("button", name=re.compile("cancel", re.I))
+                if await cancel_btn.count():
+                    await cancel_btn.click()
+                    tiktok_logger.info("  [-] auto check modal closed via cancel button.")
+                    await asyncio.sleep(0.5)
+                    handled = True
+                else:
+                    close_btn = dialog.locator(".common-modal-close-icon")
+                    if await close_btn.count():
+                        await close_btn.click()
+                        tiktok_logger.info("  [-] auto check modal closed via close icon.")
+                        await asyncio.sleep(0.5)
+                        handled = True
+            if not handled:
+                close_icon = page.locator("div.common-modal-close-icon").first
+                if await close_icon.count():
+                    await close_icon.click()
+                    tiktok_logger.info("  [-] modal closed via global close icon.")
+                    await asyncio.sleep(0.5)
+                    handled = True
+        except Exception as exc:
+            tiktok_logger.warning(f"[+] dismiss auto check modal failed: {exc}")
+        return handled
+
+    async def ensure_modal_closed(self, page, wait_seconds=0):
+        start_time = time.time()
+        while True:
+            handled = False
+            if await self.dismiss_auto_check_modal(page):
+                handled = True
+            if await self.dismiss_continue_post_modal(page):
+                handled = True
+            if await self.dismiss_generic_cancelable_modal(page):
+                handled = True
+            if await self.wait_modal_overlay_hidden(page):
+                handled = True
+            if handled:
+                await asyncio.sleep(0.3)
+                continue
+            if wait_seconds and (time.time() - start_time) < wait_seconds:
+                await asyncio.sleep(0.5)
+                continue
+            break
+
+    async def dismiss_generic_cancelable_modal(self, page):
+        handled = False
+        try:
+            cancel_buttons = page.locator("div.common-modal button:has(.TUXButton-label:has-text('Cancel'))")
+            while await cancel_buttons.count():
+                await cancel_buttons.first.click()
+                tiktok_logger.info("  [-] cancelable modal closed via cancel button.")
+                await asyncio.sleep(0.5)
+                handled = True
+                cancel_buttons = page.locator("div.common-modal button:has(.TUXButton-label:has-text('Cancel'))")
+        except Exception as exc:
+            tiktok_logger.warning(f"[+] dismiss cancelable modal failed: {exc}")
+        return handled
+
+    async def dismiss_continue_post_modal(self, page):
+        handled = False
+        try:
+            dialog = page.locator("div.common-modal").filter(has_text=re.compile("Continue to post", re.I))
+            if not await dialog.count():
+                dialog = page.get_by_role("dialog", name=re.compile("Continue to post", re.I))
+            if await dialog.count():
+                cancel_btn = dialog.locator("button:has(.TUXButton-label:has-text('Cancel'))")
+                post_now_btn = dialog.locator("button:has(.TUXButton-label:has-text('Post now'))")
+                if await cancel_btn.count():
+                    await cancel_btn.click()
+                    tiktok_logger.info("  [-] continue-post modal closed via cancel button.")
+                    handled = True
+                elif await post_now_btn.count():
+                    await post_now_btn.click()
+                    tiktok_logger.info("  [-] continue-post modal acknowledged via post now button.")
+                    handled = True
+                await asyncio.sleep(0.5)
+        except Exception as exc:
+            tiktok_logger.warning(f"[+] dismiss continue-post modal failed: {exc}")
+        return handled
+
+    async def wait_modal_overlay_hidden(self, page):
+        try:
+            overlay = page.locator("div.TUXModal-overlay[data-transition-status='open']")
+            if await overlay.count():
+                await overlay.wait_for(state='hidden', timeout=5000)
+                return True
+        except Exception as exc:
+            tiktok_logger.warning(f"[+] wait overlay hidden failed: {exc}")
+        return False
 
     async def choose_base_locator(self, page):
         # await page.wait_for_selector('div.upload-container')
