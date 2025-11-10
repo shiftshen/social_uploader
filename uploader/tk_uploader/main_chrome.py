@@ -147,7 +147,23 @@ class TiktokVideo(object):
         await file_chooser.set_files(self.file_path)
 
     async def upload(self, playwright: Playwright) -> None:
-        browser = await playwright.chromium.launch(headless=False, executable_path=self.local_executable_path)
+        # Guard executable_path: only use if non-empty, exists and is executable; otherwise fallback.
+        launch_kwargs = {"headless": False}
+        path = (self.local_executable_path or "").strip()
+        try:
+            if path and os.path.isfile(path) and os.access(path, os.X_OK):
+                launch_kwargs["executable_path"] = path
+            else:
+                # Fallback to Playwright-managed browser or system Chrome channel
+                # Avoid passing an invalid path like '' which results in spawn . EACCES
+                tiktok_logger.info("[browser] LOCAL_CHROME_PATH 未设置或不可执行，使用默认浏览器/Chrome 渠道")
+                # Uncomment next line if you prefer system Chrome over bundled Chromium
+                # launch_kwargs["channel"] = "chrome"
+        except Exception:
+            # Any unexpected error falls back to default
+            tiktok_logger.info("[browser] 解析浏览器路径失败，回退到默认设置")
+
+        browser = await playwright.chromium.launch(**launch_kwargs)
         context = await browser.new_context(storage_state=f"{self.account_file}")
         # context = await set_init_script(context)
         page = await context.new_page()
