@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: sau-backend
+    ports:
+      - "5406:5406"
+    volumes:
+      - ./database.db:/app/database.db
+      - ./conf.py:/app/conf.py
+      - ./videoFile:/app/videoFile
+      - ./videos:/app/videos
+      - ./uploader:/app/uploader
+      - ./logs:/app/logs
+      # Map host time
+      - /etc/localtime:/etc/localtime:ro
+    restart: always
+    environment:
+      - TZ=Asia/Shanghai
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: sau-frontend
+    ports:
+      - "5106:80"
+    depends_on:
+      - backend
+    restart: always
