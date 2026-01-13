@@ -65,7 +65,7 @@ async def douyin_cookie_gen(id,status_queue):
         await page.close()
         await context.close()
         await browser.close()
-        with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
+        with sqlite3.connect(Path(BASE_DIR / "database.db")) as conn:
             cursor = conn.cursor()
             cursor.execute('''
                                 INSERT INTO user_info (type, filePath, userName, status)
@@ -144,7 +144,7 @@ async def get_tencent_cookie(id,status_queue):
         await context.close()
         await browser.close()
 
-        with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
+        with sqlite3.connect(Path(BASE_DIR / "database.db")) as conn:
             cursor = conn.cursor()
             cursor.execute('''
                                 INSERT INTO user_info (type, filePath, userName, status)
@@ -218,12 +218,12 @@ async def get_ks_cookie(id,status_queue):
         await context.close()
         await browser.close()
 
-        with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
+        with sqlite3.connect(Path(BASE_DIR / "database.db")) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                                        INSERT INTO user_info (type, filePath, userName, status)
-                                        VALUES (?, ?, ?, ?)
-                                        ''', (4, f"{uuid_v1}.json", id, 1))
+                                INSERT INTO user_info (type, filePath, userName, status)
+                                VALUES (?, ?, ?, ?)
+                                ''', (4, f"{uuid_v1}.json", id, 1))
             conn.commit()
             print("✅ 用户状态已记录")
         status_queue.put("200")
@@ -292,12 +292,12 @@ async def xiaohongshu_cookie_gen(id,status_queue):
         await context.close()
         await browser.close()
 
-        with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
+        with sqlite3.connect(Path(BASE_DIR / "database.db")) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                           INSERT INTO user_info (type, filePath, userName, status)
-                           VALUES (?, ?, ?, ?)
-                           ''', (1, f"{uuid_v1}.json", id, 1))
+                                INSERT INTO user_info (type, filePath, userName, status)
+                                VALUES (?, ?, ?, ?)
+                                ''', (1, f"{uuid_v1}.json", id, 1))
             conn.commit()
             print("✅ 用户状态已记录")
         status_queue.put("200")
@@ -461,7 +461,7 @@ async def tiktok_cookie_gen(id, status_queue):
         await context.close()
         await browser.close()
 
-        with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
+        with sqlite3.connect(Path(BASE_DIR / "database.db")) as conn:
             cursor = conn.cursor()
             cursor.execute('''
                            INSERT INTO user_info (type, filePath, userName, status)

@@ -8,13 +8,45 @@ from pathlib import Path
 from queue import Queue
 from flask_cors import CORS
 from myUtils.auth import check_cookie
-from flask import Flask, request, jsonify, Response, render_template, send_from_directory
+from flask import Flask, request, jsonify, Response, send_from_directory
 from conf import BASE_DIR
 from myUtils.ai_client import AIServiceError, generate_ai_content
 from myUtils.login import get_tencent_cookie, douyin_cookie_gen, get_ks_cookie, xiaohongshu_cookie_gen, tiktok_cookie_gen
 from myUtils.postVideo import post_video_tencent, post_video_DouYin, post_video_ks, post_video_xhs, post_video_tiktok
 
 active_queues = {}
+
+def _get_db_path():
+    return Path(BASE_DIR / "database.db")
+
+def _ensure_database():
+    db_path = _get_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_info (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type INTEGER NOT NULL,
+                filePath TEXT NOT NULL,
+                userName TEXT NOT NULL,
+                status INTEGER DEFAULT 0
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS file_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL,
+                filesize REAL,
+                upload_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                file_path TEXT
+            )
+            """
+        )
+        conn.commit()
 
 
 def _to_bool(value):
@@ -31,6 +63,8 @@ app = Flask(__name__)
 #允许所有来源跨域访问
 CORS(app)
 
+_ensure_database()
+
 # 限制上传文件大小为160MB
 app.config['MAX_CONTENT_LENGTH'] = 160 * 1024 * 1024
 
@@ -44,8 +78,16 @@ def custom_static(filename):
 
 # 处理 favicon.ico 静态资源（未来打包用）
 @app.route('/favicon.ico')
-def favicon(filename):
-    return send_from_directory(os.path.join(current_dir, 'assets'), 'favicon.ico')
+def favicon():
+    assets_dir = os.path.join(current_dir, 'assets')
+    favicon_path = os.path.join(assets_dir, 'favicon.ico')
+    if os.path.exists(favicon_path):
+        return send_from_directory(assets_dir, 'favicon.ico')
+    return "", 204
+
+@app.route('/healthz')
+def healthz():
+    return jsonify({"status": "ok"}), 200
 
 # （未来打包用）
 @app.route('/')
@@ -132,7 +174,7 @@ def upload_save():
         # 保存文件
         file.save(filepath)
 
-        with sqlite3.connect(Path(BASE_DIR / "database.db")) as conn:
+        with sqlite3.connect(_get_db_path()) as conn:
             cursor = conn.cursor()
             cursor.execute('''
                                 INSERT INTO file_records (filename, filesize, file_path)
@@ -198,8 +240,9 @@ def ai_generate():
 @app.route('/getFiles', methods=['GET'])
 def get_all_files():
     try:
+        _ensure_database()
         # 使用 with 自动管理数据库连接
-        with sqlite3.connect(Path(BASE_DIR / "database.db")) as conn:
+        with sqlite3.connect(_get_db_path()) as conn:
             conn.row_factory = sqlite3.Row  # 允许通过列名访问结果
             cursor = conn.cursor()
 
@@ -224,35 +267,57 @@ def get_all_files():
 
 
 @app.route("/getValidAccounts",methods=['GET'])
-async def getValidAccounts():
-    with sqlite3.connect(Path(BASE_DIR / "database.db")) as conn:
+def getValidAccounts():
+    _ensure_database()
+    with sqlite3.connect(_get_db_path()) as conn:
         cursor = conn.cursor()
-        cursor.execute('''
-        SELECT * FROM user_info''')
+        cursor.execute("SELECT * FROM user_info")
         rows = cursor.fetchall()
-        rows_list = [list(row) for row in rows]
-        print("\n📋 当前数据表内容：")
-        for row in rows:
-            print(row)
+
+    rows_list = [list(row) for row in rows]
+
+    async def _check_all_accounts():
+        results = []
         for row in rows_list:
-            flag = await check_cookie(row[1],row[2])
-            if not flag:
-                row[4] = 0
-                cursor.execute('''
-                UPDATE user_info 
-                SET status = ? 
-                WHERE id = ?
-                ''', (0,row[0]))
-                conn.commit()
-                print("✅ 用户状态已更新")
-        for row in rows:
-            print(row)
-        return jsonify(
-                        {
-                            "code": 200,
-                            "msg": None,
-                            "data": rows_list
-                        }),200
+            try:
+                results.append(await check_cookie(row[1], row[2]))
+            except Exception:
+                results.append(False)
+        return results
+
+    try:
+        flags = asyncio.run(_check_all_accounts())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            flags = loop.run_until_complete(_check_all_accounts())
+        finally:
+            loop.close()
+    except Exception:
+        flags = [False] * len(rows_list)
+
+    invalid_ids = []
+    for row, ok in zip(rows_list, flags):
+        if not ok:
+            row[4] = 0
+            invalid_ids.append(row[0])
+
+    if invalid_ids:
+        with sqlite3.connect(_get_db_path()) as conn:
+            cursor = conn.cursor()
+            cursor.executemany(
+                "UPDATE user_info SET status = ? WHERE id = ?",
+                [(0, account_id) for account_id in invalid_ids],
+            )
+            conn.commit()
+
+    return jsonify(
+        {
+            "code": 200,
+            "msg": None,
+            "data": rows_list,
+        }
+    ), 200
 
 @app.route('/deleteFile', methods=['GET'])
 def delete_file():
@@ -267,7 +332,7 @@ def delete_file():
 
     try:
         # 获取数据库连接
-        with sqlite3.connect(Path(BASE_DIR / "database.db")) as conn:
+        with sqlite3.connect(_get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
@@ -310,7 +375,7 @@ def delete_account():
 
     try:
         # 获取数据库连接
-        with sqlite3.connect(Path(BASE_DIR / "database.db")) as conn:
+        with sqlite3.connect(_get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
@@ -396,22 +461,41 @@ def postVideo():
     # 打印获取到的数据（仅作为示例）
     print("File List:", file_list)
     print("Account List:", account_list)
-    match type:
-        case 1:
-            post_video_xhs(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
-                               start_days)
-        case 2:
-            post_video_tencent(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
-                               start_days)
-        case 3:
-            post_video_DouYin(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
-                      start_days, thumbnail_path, productLink, productTitle)
-        case 4:
-            post_video_ks(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
-                      start_days)
-        case 5:
-            post_video_tiktok(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
-                              start_days, thumbnail_path, is_ai_content)
+    if type == 1:
+        post_video_xhs(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times, start_days)
+    elif type == 2:
+        post_video_tencent(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times, start_days)
+    elif type == 3:
+        post_video_DouYin(
+            title,
+            file_list,
+            tags,
+            account_list,
+            category,
+            enableTimer,
+            videos_per_day,
+            daily_times,
+            start_days,
+            thumbnail_path,
+            productLink,
+            productTitle,
+        )
+    elif type == 4:
+        post_video_ks(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times, start_days)
+    elif type == 5:
+        post_video_tiktok(
+            title,
+            file_list,
+            tags,
+            account_list,
+            category,
+            enableTimer,
+            videos_per_day,
+            daily_times,
+            start_days,
+            thumbnail_path,
+            is_ai_content,
+        )
     # 返回响应给客户端
     return jsonify(
         {
@@ -432,7 +516,7 @@ def updateUserinfo():
     userName = data.get('userName')
     try:
         # 获取数据库连接
-        with sqlite3.connect(Path(BASE_DIR / "database.db")) as conn:
+        with sqlite3.connect(_get_db_path()) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
@@ -486,21 +570,40 @@ def postVideoBatch():
         # 打印获取到的数据（仅作为示例）
         print("File List:", file_list)
         print("Account List:", account_list)
-        match type:
-            case 1:
-                return
-            case 2:
-                post_video_tencent(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
-                                   start_days)
-            case 3:
-                post_video_DouYin(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
-                          start_days, productLink, productTitle)
-            case 4:
-                post_video_ks(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
-                          start_days)
-            case 5:
-                post_video_tiktok(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
-                                  start_days, thumbnail_path, is_ai_content)
+        if type == 1:
+            return
+        elif type == 2:
+            post_video_tencent(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times, start_days)
+        elif type == 3:
+            post_video_DouYin(
+                title,
+                file_list,
+                tags,
+                account_list,
+                category,
+                enableTimer,
+                videos_per_day,
+                daily_times,
+                start_days,
+                productLink,
+                productTitle,
+            )
+        elif type == 4:
+            post_video_ks(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times, start_days)
+        elif type == 5:
+            post_video_tiktok(
+                title,
+                file_list,
+                tags,
+                account_list,
+                category,
+                enableTimer,
+                videos_per_day,
+                daily_times,
+                start_days,
+                thumbnail_path,
+                is_ai_content,
+            )
     # 返回响应给客户端
     return jsonify(
         {
@@ -511,32 +614,21 @@ def postVideoBatch():
 
 # 包装函数：在线程中运行异步函数
 def run_async_function(type,id,status_queue):
-    match type:
-        case '1':
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        if type == '1':
             loop.run_until_complete(xiaohongshu_cookie_gen(id, status_queue))
-            loop.close()
-        case '2':
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(get_tencent_cookie(id,status_queue))
-            loop.close()
-        case '3':
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(douyin_cookie_gen(id,status_queue))
-            loop.close()
-        case '4':
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(get_ks_cookie(id,status_queue))
-            loop.close()
-        case '5':
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        elif type == '2':
+            loop.run_until_complete(get_tencent_cookie(id, status_queue))
+        elif type == '3':
+            loop.run_until_complete(douyin_cookie_gen(id, status_queue))
+        elif type == '4':
+            loop.run_until_complete(get_ks_cookie(id, status_queue))
+        elif type == '5':
             loop.run_until_complete(tiktok_cookie_gen(id, status_queue))
-            loop.close()
+    finally:
+        loop.close()
 
 # SSE 流生成器函数
 def sse_stream(status_queue):

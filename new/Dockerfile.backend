@@ -27,5 +27,4 @@ RUN mkdir -p videoFile videos logs
 # Expose port
 EXPOSE 5406
 
-# Command: Use xvfb-run to support headless=False browser launches
-CMD ["xvfb-run", "--auto-servernum", "--server-args='-screen 0 1280x960x24'", "python", "sau_backend.py"]
+CMD ["sh","-lc","Xvfb :99 -screen 0 1280x960x24 -nolisten tcp >/dev/null 2>&1 & export DISPLAY=:99; exec python sau_backend.py"]
