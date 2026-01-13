@@ -20,11 +20,13 @@ export const materialApi = {
   
   // 下载素材
   downloadMaterial: (filePath) => {
-    return `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'}/download/${filePath}`
+    const baseUrl = import.meta.env.PROD ? '/api' : (import.meta.env.VITE_API_BASE_URL || '/api')
+    return `${baseUrl}/getFile?filename=${encodeURIComponent(filePath)}`
   },
   
   // 获取素材预览URL
   getMaterialPreviewUrl: (filename) => {
-    return `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'}/getFile?filename=${filename}`
+    const baseUrl = import.meta.env.PROD ? '/api' : (import.meta.env.VITE_API_BASE_URL || '/api')
+    return `${baseUrl}/getFile?filename=${encodeURIComponent(filename)}`
   }
 }

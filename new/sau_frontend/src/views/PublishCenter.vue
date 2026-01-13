@@ -543,7 +543,7 @@ import { materialApi } from '@/api/material'
 import { aiApi } from '@/api/ai'
 
 // API base URL
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
+const apiBaseUrl = import.meta.env.PROD ? '/api' : (import.meta.env.VITE_API_BASE_URL || '/api')
 
 // Authorization headers
 const authHeaders = computed(() => ({
