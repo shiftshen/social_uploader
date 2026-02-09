@@ -159,7 +159,7 @@ class TiktokVideo(object):
                 # Fallback to Playwright-managed browser or system Chrome channel
                 # Avoid passing an invalid path like '' which results in spawn . EACCES
                 tiktok_logger.info("[browser] LOCAL_CHROME_PATH 未设置或不可执行，使用默认浏览器/Chrome 渠道")
-                launch_kwargs["channel"] = "chrome"
+                # launch_kwargs["channel"] = "chrome"
         except Exception:
             # Any unexpected error falls back to default
             tiktok_logger.info("[browser] 解析浏览器路径失败，回退到默认设置")
@@ -183,8 +183,11 @@ class TiktokVideo(object):
         await page.wait_for_url("https://www.tiktok.com/tiktokstudio/upload", timeout=20000)
 
         # 等待页面加载完成
-        await page.wait_for_load_state('networkidle', timeout=30000)
-        tiktok_logger.info("Page load state: networkidle")
+        try:
+            await page.wait_for_load_state('networkidle', timeout=30000)
+        except Exception:
+            tiktok_logger.info("Page load timeout (networkidle), continuing anyway...")
+        tiktok_logger.info("Page load state: networkidle (or timeout)")
 
         try:
             await self.wait_for_upload_surface(page)

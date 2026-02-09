@@ -64,75 +64,82 @@
 
           <!-- 视频上传区域 -->
           <div class="upload-section">
-            <h3>视频</h3>
-            <div class="upload-options">
-              <el-button type="primary" @click="showUploadOptions(tab)" class="upload-btn">
-                <el-icon><Upload /></el-icon>
-                上传视频
-              </el-button>
+            <div class="section-header">
+              <h3>素材库</h3>
+              <el-upload
+                class="inline-upload"
+                :action="`${apiBaseUrl}/upload`"
+                :on-success="(response, file) => handleUploadSuccess(response, file, tab)"
+                :on-error="handleUploadError"
+                multiple
+                :show-file-list="false"
+                accept="video/*"
+                :headers="authHeaders"
+              >
+                <el-button type="primary" size="small">
+                  <el-icon><Upload /></el-icon>
+                  上传新视频
+                </el-button>
+              </el-upload>
             </div>
             
-            <!-- 已上传文件列表 -->
-            <div v-if="tab.fileList.length > 0" class="uploaded-files">
-              <h4>已上传文件：</h4>
+            <!-- 素材列表 -->
+            <div class="material-selection-area">
+              <div v-if="loadingMaterials" class="loading-placeholder">
+                <el-icon class="is-loading"><Loading /></el-icon> 加载中...
+              </div>
+              <div v-else-if="materials.length === 0" class="empty-placeholder">
+                暂无素材，请点击右上角上传
+              </div>
+              <el-checkbox-group v-else v-model="tab.selectedMaterialIds" @change="(val) => handleMaterialSelectionChange(val, tab)">
+                <div class="material-grid">
+                  <div
+                    v-for="material in displayedMaterials"
+                    :key="material.id"
+                    class="material-card"
+                    :class="{ 'is-selected': tab.selectedMaterialIds.includes(material.id) }"
+                  >
+                    <el-checkbox :label="material.id" class="material-checkbox">
+                      <span class="material-name" :title="material.filename">{{ material.filename }}</span>
+                    </el-checkbox>
+                    <div class="material-meta">
+                      <span class="file-size">{{ material.filesize }}MB</span>
+                      <span class="upload-time">{{ formatTime(material.upload_time) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </el-checkbox-group>
+              
+              <!-- 分页 -->
+              <div class="pagination-wrapper" v-if="materials.length > 5">
+                <el-pagination
+                  v-model:current-page="currentPage"
+                  :page-size="5"
+                  layout="prev, pager, next"
+                  :total="materials.length"
+                  @current-change="handlePageChange"
+                  small
+                />
+              </div>
+            </div>
+
+            <!-- 已选文件预览 (仅显示已选中的) -->
+            <div v-if="tab.fileList.length > 0" class="selected-files-preview">
+              <h4>已选视频 ({{ tab.fileList.length }})：</h4>
               <div class="file-list">
                 <div v-for="(file, index) in tab.fileList" :key="index" class="file-item">
                   <el-link :href="file.url" target="_blank" type="primary">{{ file.name }}</el-link>
-                  <span class="file-size">{{ (file.size / 1024 / 1024).toFixed(2) }}MB</span>
-                  <el-button type="danger" size="small" @click="removeFile(tab, index)">删除</el-button>
+                  <el-button type="text" class="remove-btn" @click="deselectMaterial(tab, file.path)">
+                    <el-icon><Close /></el-icon>
+                  </el-button>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- 上传选项弹窗 -->
-          <el-dialog
-            v-model="uploadOptionsVisible"
-            title="选择上传方式"
-            width="400px"
-            class="upload-options-dialog"
-          >
-            <div class="upload-options-content">
-              <el-button type="primary" @click="selectLocalUpload" class="option-btn">
-                <el-icon><Upload /></el-icon>
-                本地上传
-              </el-button>
-              <el-button type="success" @click="selectMaterialLibrary" class="option-btn">
-                <el-icon><Folder /></el-icon>
-                素材库
-              </el-button>
-            </div>
-          </el-dialog>
+          <!-- 上传选项弹窗 (已废弃) -->
 
-          <!-- 本地上传弹窗 -->
-          <el-dialog
-            v-model="localUploadVisible"
-            title="本地上传"
-            width="600px"
-            class="local-upload-dialog"
-          >
-            <el-upload
-              class="video-upload"
-              drag
-              :auto-upload="true"
-              :action="`${apiBaseUrl}/upload`"
-              :on-success="(response, file) => handleUploadSuccess(response, file, currentUploadTab)"
-              :on-error="handleUploadError"
-              multiple
-              accept="video/*"
-              :headers="authHeaders"
-            >
-              <el-icon class="el-icon--upload"><Upload /></el-icon>
-              <div class="el-upload__text">
-                将视频文件拖到此处，或<em>点击上传</em>
-              </div>
-              <template #tip>
-                <div class="el-upload__tip">
-                  支持MP4、AVI等视频格式，可上传多个文件
-                </div>
-              </template>
-            </el-upload>
-          </el-dialog>
+          <!-- 本地上传弹窗 (已废弃) -->
 
           <!-- 批量发布进度对话框 -->
           <el-dialog
@@ -187,41 +194,22 @@
             </template>
           </el-dialog>
 
-          <!-- 素材库选择弹窗 -->
-          <el-dialog
-            v-model="materialLibraryVisible"
-            title="选择素材"
-            width="800px"
-            class="material-library-dialog"
-          >
-            <div class="material-library-content">
-              <el-checkbox-group v-model="selectedMaterials">
-                <div class="material-list">
-                  <div
-                    v-for="material in materials"
-                    :key="material.id"
-                    class="material-item"
-                  >
-                    <el-checkbox :label="material.id" class="material-checkbox">
-                      <div class="material-info">
-                        <div class="material-name">{{ material.filename }}</div>
-                        <div class="material-details">
-                          <span class="file-size">{{ material.filesize }}MB</span>
-                          <span class="upload-time">{{ material.upload_time }}</span>
-                        </div>
-                      </div>
-                    </el-checkbox>
-                  </div>
-                </div>
-              </el-checkbox-group>
-            </div>
-            <template #footer>
-              <div class="dialog-footer">
-                <el-button @click="materialLibraryVisible = false">取消</el-button>
-                <el-button type="primary" @click="confirmMaterialSelection">确定</el-button>
-              </div>
-            </template>
-          </el-dialog>
+          <!-- 素材库选择弹窗 (已废弃) -->
+
+          <!-- 平台选择 -->
+          <div class="platform-section">
+            <h3>平台</h3>
+            <el-radio-group v-model="tab.selectedPlatform" class="platform-radios">
+              <el-radio 
+                v-for="platform in platforms" 
+                :key="platform.key"
+                :label="platform.key"
+                class="platform-radio"
+              >
+                {{ platform.name }}
+              </el-radio>
+            </el-radio-group>
+          </div>
 
           <!-- 账号选择 -->
           <div class="account-section">
@@ -280,21 +268,6 @@
               </div>
             </template>
           </el-dialog>
-
-          <!-- 平台选择 -->
-          <div class="platform-section">
-            <h3>平台</h3>
-            <el-radio-group v-model="tab.selectedPlatform" class="platform-radios">
-              <el-radio 
-                v-for="platform in platforms" 
-                :key="platform.key"
-                :label="platform.key"
-                class="platform-radio"
-              >
-                {{ platform.name }}
-              </el-radio>
-            </el-radio-group>
-          </div>
 
           <!-- 标题输入 -->
           <div class="title-section">
@@ -366,72 +339,15 @@
               </el-button>
             </div>
             <div class="topic-display">
-              <div class="selected-topics">
-                <el-tag
-                  v-for="(topic, index) in tab.selectedTopics"
-                  :key="index"
-                  closable
-                  @close="removeTopic(tab, index)"
-                  class="topic-tag"
-                >
-                  #{{ topic }}
-                </el-tag>
-              </div>
-              <el-button 
-                type="primary" 
-                plain 
-                @click="openTopicDialog(tab)"
-                class="select-topic-btn"
-              >
-                添加话题
-              </el-button>
+              <el-input
+                v-model="tab.topicInputValue"
+                type="textarea"
+                :rows="3"
+                placeholder="请输入话题，多个话题请用空格分隔，例如：#游戏 #精彩时刻"
+                class="topic-input"
+              />
             </div>
           </div>
-
-          <!-- 添加话题弹窗 -->
-          <el-dialog
-            v-model="topicDialogVisible"
-            title="添加话题"
-            width="600px"
-            class="topic-dialog"
-          >
-            <div class="topic-dialog-content">
-              <!-- 自定义话题输入 -->
-              <div class="custom-topic-input">
-                <el-input
-                  v-model="customTopic"
-                  placeholder="输入自定义话题"
-                  class="custom-input"
-                >
-                  <template #prepend>#</template>
-                </el-input>
-                <el-button type="primary" @click="addCustomTopic">添加</el-button>
-              </div>
-
-              <!-- 推荐话题 -->
-              <div class="recommended-topics">
-                <h4>推荐话题</h4>
-                <div class="topic-grid">
-                  <el-button
-                    v-for="topic in recommendedTopics"
-                    :key="topic"
-                    :type="currentTab?.selectedTopics?.includes(topic) ? 'primary' : 'default'"
-                    @click="toggleRecommendedTopic(topic)"
-                    class="topic-btn"
-                  >
-                    {{ topic }}
-                  </el-button>
-                </div>
-              </div>
-            </div>
-
-            <template #footer>
-              <div class="dialog-footer">
-                <el-button @click="topicDialogVisible = false">取消</el-button>
-                <el-button type="primary" @click="confirmTopicSelection">确定</el-button>
-              </div>
-            </template>
-          </el-dialog>
 
           <!-- 标签 (仅在抖音可见) -->
           <div v-if="tab.selectedPlatform === 3" class="product-section">
@@ -534,16 +450,17 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
-import { Upload, Plus, Close, Folder, Check, InfoFilled } from '@element-plus/icons-vue'
+import { ref, reactive, computed, onMounted } from 'vue'
+import { Upload, Plus, Close, Folder, Check, InfoFilled, Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
 import { materialApi } from '@/api/material'
 import { aiApi } from '@/api/ai'
+import { dayjs } from 'element-plus'
 
 // API base URL
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
+const apiBaseUrl = import.meta.env.PROD ? '/api' : (import.meta.env.VITE_API_BASE_URL || '/api')
 
 // Authorization headers
 const authHeaders = computed(() => ({
@@ -560,12 +477,82 @@ let tabCounter = 1
 const appStore = useAppStore()
 
 // 上传相关状态
-const uploadOptionsVisible = ref(false)
-const localUploadVisible = ref(false)
-const materialLibraryVisible = ref(false)
 const currentUploadTab = ref(null)
-const selectedMaterials = ref([])
 const materials = computed(() => appStore.materials)
+const loadingMaterials = ref(false)
+const currentPage = ref(1)
+
+// 获取并展示素材
+const fetchMaterials = async () => {
+  loadingMaterials.value = true
+  try {
+    const response = await materialApi.getAllMaterials()
+    if (response.code === 200) {
+      // 假设后端返回的数据已经是按时间排序的，如果不是，前端排序
+      const sorted = (response.data || []).sort((a, b) => {
+        return new Date(b.upload_time).getTime() - new Date(a.upload_time).getTime()
+      })
+      appStore.setMaterials(sorted)
+    }
+  } catch (error) {
+    console.error('获取素材列表失败:', error)
+    ElMessage.error('获取素材列表失败')
+  } finally {
+    loadingMaterials.value = false
+  }
+}
+
+// 分页显示素材
+const displayedMaterials = computed(() => {
+  const start = (currentPage.value - 1) * 5
+  return materials.value.slice(start, start + 5)
+})
+
+const handlePageChange = (page) => {
+  currentPage.value = page
+}
+
+const formatTime = (time) => {
+  return dayjs ? dayjs(time).format('MM-DD HH:mm') : time
+}
+
+// 处理素材勾选变化
+const handleMaterialSelectionChange = (selectedIds, tab) => {
+  // 清空现有文件列表，重新根据选中ID生成
+  tab.fileList = []
+  
+  selectedIds.forEach(id => {
+    const material = materials.value.find(m => m.id === id)
+    if (material) {
+      const fileInfo = {
+        name: material.filename,
+        url: materialApi.getMaterialPreviewUrl(material.file_path.split('/').pop()),
+        path: material.file_path,
+        size: material.filesize * 1024 * 1024,
+        type: 'video/mp4'
+      }
+      tab.fileList.push(fileInfo)
+    }
+  })
+  
+  // 更新显示列表
+  tab.displayFileList = [...tab.fileList.map(item => ({
+    name: item.name,
+    url: item.url
+  }))]
+}
+
+// 取消选中素材
+const deselectMaterial = (tab, filePath) => {
+  const material = materials.value.find(m => m.file_path === filePath)
+  if (material) {
+    const index = tab.selectedMaterialIds.indexOf(material.id)
+    if (index > -1) {
+      tab.selectedMaterialIds.splice(index, 1)
+      handleMaterialSelectionChange(tab.selectedMaterialIds, tab)
+    }
+  }
+}
 
 // 批量发布相关状态
 const batchPublishing = ref(false)
@@ -592,12 +579,13 @@ const defaultTabInit = {
   fileList: [], // 后端返回的文件名列表
   displayFileList: [], // 用于显示的文件列表
   selectedAccounts: [], // 选中的账号ID列表
-  selectedPlatform: 1, // 选中的平台（单选）
+  selectedPlatform: 3, // 选中的平台（默认抖音）
   title: '',
   xhsTitle: '',
   productLink: '', // 商品链接
   productTitle: '', // 商品名称
-  selectedTopics: [], // 话题列表（不带#号）
+  selectedTopics: [], // 话题列表（已废弃，保留用于兼容）
+  topicInputValue: '', // 话题输入框内容
   scheduleEnabled: false, // 定时发布开关
   videosPerDay: 1, // 每天发布视频数量
   dailyTimes: ['10:00'], // 每天发布时间点列表
@@ -606,7 +594,8 @@ const defaultTabInit = {
   publishStatus: null, // 发布状态，包含message和type
   aiTitleLoading: false,
   aiTopicLoading: false,
-  aiXhsTitleLoading: false
+  aiXhsTitleLoading: false,
+  selectedMaterialIds: [] // 选中的素材ID
 }
 
 // helper to create a fresh deep-copied tab from defaultTabInit
@@ -626,7 +615,9 @@ const copyTabContent = (sourceTab, targetTab) => {
   targetTab.displayFileList = sourceTab.displayFileList.map(file => ({ ...file }))
   targetTab.title = sourceTab.title
   targetTab.xhsTitle = sourceTab.xhsTitle
+  targetTab.topicInputValue = sourceTab.topicInputValue
   targetTab.selectedTopics = [...sourceTab.selectedTopics]
+  targetTab.selectedMaterialIds = [...sourceTab.selectedMaterialIds]
 }
 
 // tab页数据 - 默认只有一个tab (use deep copy to avoid shared refs)
@@ -655,16 +646,7 @@ const availableAccounts = computed(() => {
   return currentPlatform ? accountStore.accounts.filter(acc => acc.platform === currentPlatform) : []
 })
 
-// 话题相关状态
-const topicDialogVisible = ref(false)
-const customTopic = ref('')
 
-// 推荐话题列表
-const recommendedTopics = [
-  '游戏', '电影', '音乐', '美食', '旅行', '文化',
-  '科技', '生活', '娱乐', '体育', '教育', '艺术',
-  '健康', '时尚', '美妆', '摄影', '宠物', '汽车'
-]
 
 const aiTargetLoadingMap = {
   title: 'aiTitleLoading',
@@ -688,7 +670,9 @@ const buildAiContext = (tab) => {
     productLink: normalizeString(safeTab.productLink),
     existingTitle: normalizeString(safeTab.title),
     existingXhsTitle: normalizeString(safeTab.xhsTitle),
-    existingTopics: Array.isArray(safeTab.selectedTopics) ? [...safeTab.selectedTopics] : [],
+    existingTopics: safeTab.topicInputValue 
+      ? safeTab.topicInputValue.split(/[\s,，\n]+/).map(t => t.trim().replace(/^#/, '')).filter(Boolean)
+      : [],
     fileNames
   }
 }
@@ -750,6 +734,8 @@ const triggerAiGeneration = async (tab, targets) => {
     }
 
     if (normalizedTargets.includes('topics') && Array.isArray(generated.topics)) {
+      tab.topicInputValue = generated.topics.map(t => t.startsWith('#') ? t : `#${t}`).join(' ')
+      // 兼容旧字段
       tab.selectedTopics = [...generated.topics]
       updated = true
     }
@@ -811,31 +797,20 @@ const removeTab = (tabName) => {
 // 处理文件上传成功
 const handleUploadSuccess = (response, file, tab) => {
   if (response.code === 200) {
-    // 获取文件路径
-    const filePath = response.data.path || response.data
-    // 从路径中提取文件名
-    const filename = filePath.split('/').pop()
-    
-    // 保存文件信息到fileList，包含文件路径和其他信息
-    const fileInfo = {
-      name: file.name,
-      url: materialApi.getMaterialPreviewUrl(filename), // 使用getMaterialPreviewUrl生成预览URL
-      path: filePath,
-      size: file.size,
-      type: file.type
-    }
-    
-    // 添加到文件列表
-    tab.fileList.push(fileInfo)
-    
-    // 更新显示列表
-    tab.displayFileList = [...tab.fileList.map(item => ({
-      name: item.name,
-      url: item.url
-    }))]
+    // 刷新素材库
+    fetchMaterials().then(() => {
+      // 自动选中新上传的素材
+      // 假设最新上传的在第一个
+      if (materials.value.length > 0) {
+        const newMaterial = materials.value[0]
+        if (!tab.selectedMaterialIds.includes(newMaterial.id)) {
+          tab.selectedMaterialIds.push(newMaterial.id)
+          handleMaterialSelectionChange(tab.selectedMaterialIds, tab)
+        }
+      }
+    })
     
     ElMessage.success('文件上传成功')
-    console.log('上传成功:', fileInfo)
   } else {
     ElMessage.error(response.msg || '上传失败')
   }
@@ -847,7 +822,7 @@ const handleUploadError = (error) => {
   console.error('上传错误:', error)
 }
 
-// 删除已上传文件
+// 删除已上传文件 (已废弃，改用 deselectMaterial)
 const removeFile = (tab, index) => {
   // 从文件列表中删除
   tab.fileList.splice(index, 1)
@@ -859,53 +834,6 @@ const removeFile = (tab, index) => {
   }))]
   
   ElMessage.success('文件删除成功')
-}
-
-// 话题相关方法
-// 打开添加话题弹窗
-const openTopicDialog = (tab) => {
-  currentTab.value = tab
-  topicDialogVisible.value = true
-}
-
-// 添加自定义话题
-const addCustomTopic = () => {
-  if (!customTopic.value.trim()) {
-    ElMessage.warning('请输入话题内容')
-    return
-  }
-  if (currentTab.value && !currentTab.value.selectedTopics.includes(customTopic.value.trim())) {
-    currentTab.value.selectedTopics.push(customTopic.value.trim())
-    customTopic.value = ''
-    ElMessage.success('话题添加成功')
-  } else {
-    ElMessage.warning('话题已存在')
-  }
-}
-
-// 切换推荐话题
-const toggleRecommendedTopic = (topic) => {
-  if (!currentTab.value) return
-  
-  const index = currentTab.value.selectedTopics.indexOf(topic)
-  if (index > -1) {
-    currentTab.value.selectedTopics.splice(index, 1)
-  } else {
-    currentTab.value.selectedTopics.push(topic)
-  }
-}
-
-// 删除话题
-const removeTopic = (tab, index) => {
-  tab.selectedTopics.splice(index, 1)
-}
-
-// 确认添加话题
-const confirmTopicSelection = () => {
-  topicDialogVisible.value = false
-  customTopic.value = ''
-  currentTab.value = null
-  ElMessage.success('添加话题完成')
 }
 
 // 账号选择相关方法
@@ -980,12 +908,17 @@ const confirmPublish = async (tab) => {
       return
     }
 
+    // 解析话题
+    const tags = tab.topicInputValue
+      ? tab.topicInputValue.split(/[\s,，\n]+/).map(t => t.trim().replace(/^#/, '')).filter(Boolean)
+      : []
+
     // 构造发布数据，符合后端API格式
     const publishData = {
       type: tab.selectedPlatform,
       title: resolvedTitle,
       xhsTitle: xhsTitleValue,
-      tags: tab.selectedTopics, // 不带#号的话题列表
+      tags: tags, // 不带#号的话题列表
       fileList: tab.fileList.map(file => file.path), // 只发送文件路径
       accountList: tab.selectedAccounts.map(accountId => {
         const account = accountStore.accounts.find(acc => acc.id === accountId)
@@ -1022,6 +955,7 @@ const confirmPublish = async (tab) => {
         tab.displayFileList = []
         tab.title = ''
         tab.xhsTitle = ''
+        tab.topicInputValue = ''
         tab.selectedTopics = []
         tab.selectedAccounts = []
         tab.scheduleEnabled = false
@@ -1210,6 +1144,9 @@ const batchPublish = async () => {
     isCancelled.value = false
   }
 }
+onMounted(() => {
+  fetchMaterials()
+})
 </script>
 
 <style lang="scss" scoped>
@@ -1510,19 +1447,8 @@ const batchPublish = async () => {
           flex-direction: column;
           gap: 12px;
           
-          .selected-topics {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            min-height: 32px;
-            
-            .topic-tag {
-              font-size: 14px;
-            }
-          }
-          
-          .select-topic-btn {
-            align-self: flex-start;
+          .topic-input {
+            width: 100%;
           }
         }
         
@@ -1575,98 +1501,141 @@ const batchPublish = async () => {
   }
   
   // 已上传文件列表样式
-  .uploaded-files {
+  .selected-files-preview {
     margin-top: 20px;
     
     h4 {
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 500;
       margin-bottom: 12px;
-      color: #303133;
+      color: #606266;
     }
     
     .file-list {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
       
       .file-item {
         display: flex;
         align-items: center;
-        padding: 10px 15px;
+        padding: 8px 12px;
         background-color: #f5f7fa;
         border-radius: 4px;
         
         .el-link {
           margin-right: 10px;
-          max-width: 300px;
+          flex: 1;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+          justify-content: flex-start;
         }
         
-        .file-size {
+        .remove-btn {
+          padding: 2px;
+          height: auto;
           color: #909399;
-          font-size: 13px;
-          margin-right: auto;
-        }
-      }
-    }
-  }
-  
-  // 添加话题弹窗样式
-  .topic-dialog {
-    .topic-dialog-content {
-      .custom-topic-input {
-        display: flex;
-        gap: 12px;
-        margin-bottom: 24px;
-        
-        .custom-input {
-          flex: 1;
-        }
-      }
-      
-      .recommended-topics {
-        h4 {
-          margin: 0 0 16px 0;
-          font-size: 16px;
-          font-weight: 500;
-          color: #303133;
-        }
-        
-        .topic-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-          gap: 12px;
           
-          .topic-btn {
-            height: 36px;
-            font-size: 14px;
-            border-radius: 6px;
-            min-width: 100px;
-            padding: 0 12px;
-            white-space: nowrap;
-            text-align: center;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            
-            &.el-button--primary {
-              background-color: #409eff;
-              border-color: #409eff;
-              color: white;
-            }
+          &:hover {
+            color: #f56c6c;
           }
         }
       }
     }
+  }
+
+  // 素材选择区域样式
+  .material-selection-area {
+    margin-top: 15px;
+    min-height: 100px;
     
-    .dialog-footer {
+    .loading-placeholder,
+    .empty-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100px;
+      color: #909399;
+      font-size: 14px;
+      background-color: #f9fafe;
+      border-radius: 4px;
+      gap: 8px;
+    }
+
+    .material-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    .material-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 15px;
+      border: 1px solid #dcdfe6;
+      border-radius: 4px;
+      transition: all 0.3s;
+      background-color: #fff;
+
+      &:hover {
+        border-color: #409eff;
+        background-color: #f0f9eb;
+      }
+
+      &.is-selected {
+        border-color: #67c23a;
+        background-color: #f0f9eb;
+      }
+
+      .material-checkbox {
+        display: flex;
+        align-items: center;
+        flex: 1;
+        margin-right: 15px;
+        overflow: hidden;
+        
+        :deep(.el-checkbox__label) {
+          flex: 1;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .material-name {
+          font-size: 14px;
+          color: #303133;
+        }
+      }
+
+      .material-meta {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        font-size: 12px;
+        color: #909399;
+        flex-shrink: 0;
+
+        .file-size {
+          min-width: 60px;
+          text-align: right;
+        }
+
+        .upload-time {
+          min-width: 90px;
+          text-align: right;
+        }
+      }
+    }
+
+    .pagination-wrapper {
+      margin-top: 15px;
       display: flex;
       justify-content: flex-end;
-      gap: 12px;
     }
   }
+  
+  // 添加话题弹窗样式 - 已废弃
 }
 </style>

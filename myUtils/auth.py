@@ -2,6 +2,7 @@ import asyncio
 import configparser
 import os
 import re
+import json
 from pathlib import Path
 
 from playwright.async_api import async_playwright
@@ -100,24 +101,37 @@ async def cookie_auth_xhs(account_file):
             return True
 
 async def cookie_auth_tiktok(account_file):
+    try:
+        state = json.loads(Path(account_file).read_text(encoding="utf-8"))
+        cookies = state.get("cookies") or []
+        logged_in_cookie_names = {"sessionid", "sessionid_ss", "sid_tt", "uid_tt"}
+        has_logged_in_cookie = any(cookie.get("name") in logged_in_cookie_names for cookie in cookies)
+    except Exception:
+        has_logged_in_cookie = False
+
+    if not has_logged_in_cookie:
+        print("[+] TikTok cookie 失效")
+        return False
+
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         context = await browser.new_context(storage_state=account_file)
         context = await set_init_script(context)
         page = await context.new_page()
-        await page.goto("https://www.tiktok.com/tiktokstudio/upload?lang=en")
         try:
-            await page.wait_for_load_state('networkidle')
-            select_elements = await page.query_selector_all('select')
-            for element in select_elements:
-                class_name = await element.get_attribute('class') or ''
-                if re.match(r'tiktok-.*-SelectFormContainer.*', class_name):
-                    print("[+] TikTok cookie 失效")
-                    return False
+            await page.goto("https://www.tiktok.com/tiktokstudio/upload?lang=en", wait_until="domcontentloaded", timeout=30000)
+            current_url = page.url or ""
+            if "/login" in current_url or "login" in current_url:
+                print("[+] TikTok cookie 失效")
+                return False
+            if await page.get_by_text(re.compile(r"\\blog\\s*in\\b", re.I)).count():
+                print("[+] TikTok cookie 失效")
+                return False
             print("[+] TikTok cookie 有效")
             return True
         except Exception as exc:
             print("[+] TikTok cookie 校验异常:", exc)
+            print("[+] TikTok cookie 失效")
             return False
         finally:
             await context.close()

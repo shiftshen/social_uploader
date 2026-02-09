@@ -1,9 +1,11 @@
 #!/bin/bash
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$SCRIPT_DIR/new"
+PROJECT_ROOT="$SCRIPT_DIR"
 EXTERNAL_DRIVE_PATH="/Volumes/M2USB"
 DOCKER_DATA_DIR="$EXTERNAL_DRIVE_PATH/Docker"
+DOCKER_DISK_DIR_1="$DOCKER_DATA_DIR"
+DOCKER_DISK_DIR_2="$DOCKER_DATA_DIR/Containers/DockerDesktop"
 
 echo "Restoring Social Uploader Services..."
 
@@ -42,10 +44,12 @@ fi
 
 DOCKER_INTERNAL_RAW="$HOME/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw"
 DOCKER_INTERNAL_QCOW2="$HOME/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.qcow2"
-DOCKER_EXTERNAL_RAW="$DOCKER_DATA_DIR/Docker.raw"
-DOCKER_EXTERNAL_QCOW2="$DOCKER_DATA_DIR/Docker.qcow2"
+DOCKER_EXTERNAL_RAW_1="$DOCKER_DISK_DIR_1/Docker.raw"
+DOCKER_EXTERNAL_QCOW2_1="$DOCKER_DISK_DIR_1/Docker.qcow2"
+DOCKER_EXTERNAL_RAW_2="$DOCKER_DISK_DIR_2/Docker.raw"
+DOCKER_EXTERNAL_QCOW2_2="$DOCKER_DISK_DIR_2/Docker.qcow2"
 
-if [ ! -f "$DOCKER_EXTERNAL_RAW" ] && [ ! -f "$DOCKER_EXTERNAL_QCOW2" ]; then
+if [ ! -f "$DOCKER_EXTERNAL_RAW_1" ] && [ ! -f "$DOCKER_EXTERNAL_QCOW2_1" ] && [ ! -f "$DOCKER_EXTERNAL_RAW_2" ] && [ ! -f "$DOCKER_EXTERNAL_QCOW2_2" ]; then
     if [ -f "$DOCKER_INTERNAL_RAW" ] || [ -f "$DOCKER_INTERNAL_QCOW2" ]; then
         echo "WARN: Docker disk image is currently on internal disk."
         echo "Move Docker Desktop Disk image location to: $DOCKER_DATA_DIR"
