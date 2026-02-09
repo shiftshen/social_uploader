@@ -303,11 +303,25 @@ async def xiaohongshu_cookie_gen(id,status_queue):
         status_queue.put("200")
 
 async def tiktok_cookie_gen(id, status_queue):
-    url_changed_event = asyncio.Event()
-
-    async def on_url_change():
-        if page.url != original_url:
-            url_changed_event.set()
+    async def wait_for_login(target_context, target_page, timeout_seconds=200):
+        logged_in_cookie_names = {"sessionid", "sessionid_ss", "sid_tt", "uid_tt"}
+        for _ in range(timeout_seconds):
+            try:
+                current_url = target_page.url or ""
+                if "/login" not in current_url and "login" not in current_url:
+                    cookies = await target_context.cookies()
+                    if any(cookie.get("name") in logged_in_cookie_names for cookie in cookies):
+                        return True
+            except Exception:
+                pass
+            try:
+                cookies = await target_context.cookies()
+                if any(cookie.get("name") in logged_in_cookie_names for cookie in cookies):
+                    return True
+            except Exception:
+                pass
+            await target_page.wait_for_timeout(1000)
+        return False
 
     async def capture_qr_image(target_page):
         # 依次尝试常见的 QR 选择器
@@ -369,7 +383,10 @@ async def tiktok_cookie_gen(id, status_queue):
         context = await set_init_script(context)
         page = await context.new_page()
         await page.goto("https://www.tiktok.com/login?lang=en")
-        await page.wait_for_load_state('networkidle')
+        try:
+            await page.wait_for_load_state('domcontentloaded', timeout=30000)
+        except Exception:
+            pass
         # 优先直接跳转二维码登录页
         if "/login/qrcode" not in page.url:
             try:
@@ -387,8 +404,6 @@ async def tiktok_cookie_gen(id, status_queue):
                     await page.wait_for_timeout(500)
             except Exception as e:
                 print("点击二维码登录入口失败:", e)
-
-        original_url = page.url
 
         try:
             # 等二维码绘制完成
@@ -431,13 +446,10 @@ async def tiktok_cookie_gen(id, status_queue):
             await browser.close()
             return None
 
-        page.on('framenavigated',
-                lambda frame: asyncio.create_task(on_url_change()) if frame == page.main_frame else None)
-
-        try:
-            await asyncio.wait_for(url_changed_event.wait(), timeout=200)
+        ok = await wait_for_login(context, page, timeout_seconds=200)
+        if ok:
             print("TikTok 登录跳转成功")
-        except asyncio.TimeoutError:
+        else:
             print("TikTok 登录等待超时")
             status_queue.put("500")
             await page.close()

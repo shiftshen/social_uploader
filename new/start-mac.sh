@@ -17,12 +17,12 @@ echo ""
 echo "Using Conda: $USE_CONDA (env: $CONDA_ENV_NAME)"
 echo ""
 
-echo "[pre] Cleaning ports 5409/5173"
+echo "[pre] Cleaning ports 5406/5106"
 if command -v npx &> /dev/null; then
-  npx kill-port 5409 5173 || true
+  npx kill-port 5406 5106 || true
 else
   if command -v lsof &> /dev/null; then
-    lsof -ti:5409 -ti:5173 | xargs kill -9 2>/dev/null || true
+    lsof -ti:5406 -ti:5106 | xargs kill -9 2>/dev/null || true
   fi
 fi
 

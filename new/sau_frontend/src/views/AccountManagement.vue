@@ -685,8 +685,11 @@ const connectSSE = (platform, name) => {
     const data = event.data
     console.log('SSE消息:', data)
     
+    if (!qrCodeData.value && (data.startsWith('http://') || data.startsWith('https://'))) {
+      qrCodeData.value = data
+    }
     // 如果还没有二维码数据，且数据长度较长，认为是二维码
-    if (!qrCodeData.value && data.length > 100) {
+    else if (!qrCodeData.value && data.length > 100) {
       try {
         // 确保数据是有效的base64编码
         // 如果数据已经包含了data:image前缀，直接使用
@@ -703,6 +706,16 @@ const connectSSE = (platform, name) => {
     } 
     // 如果收到状态码
     else if (data === '200' || data === '500') {
+      if (data === '200' && !qrCodeData.value) {
+        loginStatus.value = '500'
+        closeSSEConnection()
+        setTimeout(() => {
+          sseConnecting.value = false
+          qrCodeData.value = ''
+          loginStatus.value = ''
+        }, 2000)
+        return
+      }
       loginStatus.value = data
       
       // 如果登录成功

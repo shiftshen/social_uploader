@@ -627,6 +627,11 @@ def run_async_function(type,id,status_queue):
             loop.run_until_complete(get_ks_cookie(id, status_queue))
         elif type == '5':
             loop.run_until_complete(tiktok_cookie_gen(id, status_queue))
+        else:
+            status_queue.put("500")
+            return
+    except Exception:
+        status_queue.put("500")
     finally:
         loop.close()
 
